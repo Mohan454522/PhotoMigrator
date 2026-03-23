@@ -18,15 +18,9 @@ except Exception:
     pass
 # ------------------------------------------------
 
-try:
-    import customtkinter as ctk
-    from tkinterdnd2 import TkinterDnD, DND_FILES
-except ImportError:
-    messagebox.showerror(
-        "Missing Libraries", 
-        "Please install the new dependencies to run this app.\nRun: pip install customtkinter tkinterdnd2"
-    )
-    exit()
+import sys
+import customtkinter as ctk
+from tkinterdnd2 import TkinterDnD, DND_FILES
 
 # Set modern appearance
 ctk.set_appearance_mode("Dark")
@@ -85,29 +79,34 @@ class PhotoToolApp(TkinterDnD_CTk):
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save Excel file:\n{e}")
 
-    def load_names(self, file_path, textbox_data):
+    def load_names(self, file_path, textbox_data, silent=False):
         names = set()
-        if file_path:
+        if file_path and os.path.exists(file_path):
             if file_path.endswith(".txt"):
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
-                        names.update(self.clean(x) for x in f if x.strip())
+                        content = f.read().replace('\n', ',')
+                        for part in content.split(','):
+                            if part.strip():
+                                names.add(self.clean(part))
                 except Exception as e:
-                    messagebox.showerror("Error", f"Could not read TXT:\n{e}")
+                    if not silent: messagebox.showerror("Error", f"Could not read TXT:\n{e}")
             elif file_path.endswith(".xlsx"):
                 try:
                     import pandas as pd
                     df = pd.read_excel(file_path)
-                    names.update(self.clean(str(x)) for x in df.iloc[:, 0])
-                except ImportError:
-                    messagebox.showerror("Dependency Error", "Pandas missing.\nPlease run: pip install pandas openpyxl")
+                    for x in df.iloc[:, 0]:
+                        val = str(x).strip()
+                        if val and val.lower() != 'nan':
+                            names.add(self.clean(val))
                 except Exception as e:
-                    messagebox.showerror("Error", f"Could not read Excel:\n{e}")
+                    if not silent: print(f"Excel error: {e}")
 
         if textbox_data:
-            for x in textbox_data.split(","):
-                if x.strip(): 
-                    names.add(self.clean(x))
+            content = textbox_data.replace('\n', ',')
+            for part in content.split(","):
+                if part.strip(): 
+                    names.add(self.clean(part))
 
         self.input_count.set(f"Loaded: {len(names)} names")
         return names
@@ -363,6 +362,11 @@ class PhotoToolApp(TkinterDnD_CTk):
         ctk.CTkLabel(frame2, text="Or paste names manually (comma separated):").pack(anchor="w", padx=10)
         self.input_box = ctk.CTkTextbox(frame2, height=60)
         self.input_box.pack(fill="x", padx=10, pady=5)
+        
+        # Automatic bindings
+        self.input_box.bind("<KeyRelease>", lambda e: self.load_names(self.file_var.get(), self.input_box.get("1.0", tk.END), silent=True))
+        self.file_var.trace_add("write", lambda *args: self.load_names(self.file_var.get(), self.input_box.get("1.0", tk.END), silent=True))
+
         ctk.CTkLabel(frame2, textvariable=self.input_count).pack(anchor="e", padx=10, pady=(0, 10))
 
         # --- OPTIONS SECTION ---
