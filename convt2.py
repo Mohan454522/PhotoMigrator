@@ -34,10 +34,25 @@ class TkinterDnD_CTk(ctk.CTk, TkinterDnD.DnDWrapper):
         super().__init__(*args, **kwargs)
         self.TkdndVersion = TkinterDnD._require(self)
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 class PhotoToolApp(TkinterDnD_CTk):
     def __init__(self):
         super().__init__()
-        self.title("Photo Migration Tool v3 (Progress & DnD)")
+        self.title("PhotoMigrator by Mohan")
+        
+        # Add the custom icon to the window title and taskbar
+        try:
+            self.iconbitmap(resource_path("app_icon.ico"))
+        except Exception:
+            pass
+            
         self.geometry("850x800")
 
         self.grid_rowconfigure(0, weight=1)
@@ -162,15 +177,25 @@ class PhotoToolApp(TkinterDnD_CTk):
     def run(self):
         src = self.src_var.get()
         dst = self.dst_var.get()
+        mode = self.mode_var.get()
 
-        if not src or not dst:
-            messagebox.showerror("Error", "Select both Source and Destination folders.")
+        if not src:
+            messagebox.showerror("Error", "Select a Source folder.")
+            return
+            
+        if mode != "delete" and not dst:
+            messagebox.showerror("Error", "Select a Destination folder to copy/move to.")
             return
 
         names = self.load_names(self.file_var.get(), self.input_box.get("1.0", tk.END))
         if not names:
             messagebox.showwarning("Warning", "No names loaded to search for.")
             return
+
+        if mode == "delete":
+            confirm = messagebox.askyesno("Confirm Deletion", "WARNING: You are about to permanently delete all matched photos from the Source folder.\n\nAre you sure you want to proceed?")
+            if not confirm:
+                return
 
         # Prepare UI for migration
         self.cancel_flag = False
@@ -195,10 +220,16 @@ class PhotoToolApp(TkinterDnD_CTk):
         try:
             if mode == "copy":
                 shutil.copy(src_path, dst_path)
-            else:
+            elif mode == "move":
                 shutil.move(src_path, dst_path)
+            elif mode == "delete":
+                import send2trash
+                try:
+                    send2trash.send2trash(src_path)
+                except Exception:
+                    os.remove(src_path) # Fallback to permanent delete if recycle bin fails
         except Exception as e:
-            print(f"Failed to move/copy {src_path}: {e}")
+            print(f"Failed to {mode} {src_path}: {e}")
 
     def _process_files_thread(self, src, dst, names, case, partial, mode, dup, structure):
         found, missing = set(), set(names)
@@ -259,9 +290,10 @@ class PhotoToolApp(TkinterDnD_CTk):
             else:
                 self._transfer_file(src_path, dst_path, mode)
 
-            # Update progress bar
+            # Update progress bar (Optimized to reduce lag/jitter)
             prog = (i + 1) / total_files
-            self.after(0, self._update_progress, prog, i + 1, total_files)
+            if total_files < 100 or i % (total_files // 100 + 1) == 0 or i == total_files - 1:
+                self.after(0, self._update_progress, prog, i + 1, total_files)
 
         self.after(0, self._process_complete, preview, sorted(list(missing)), found)
 
@@ -384,7 +416,8 @@ class PhotoToolApp(TkinterDnD_CTk):
         radio_frame.pack(fill="x", padx=10, pady=5)
         ctk.CTkLabel(radio_frame, text="Mode:").pack(side="left", padx=(0, 10))
         ctk.CTkRadioButton(radio_frame, text="Copy", variable=self.mode_var, value="copy").pack(side="left", padx=(0, 15))
-        ctk.CTkRadioButton(radio_frame, text="Move", variable=self.mode_var, value="move").pack(side="left", padx=(0, 30))
+        ctk.CTkRadioButton(radio_frame, text="Move", variable=self.mode_var, value="move").pack(side="left", padx=(0, 15))
+        ctk.CTkRadioButton(radio_frame, text="Delete", variable=self.mode_var, value="delete").pack(side="left", padx=(0, 15))
 
         ctk.CTkLabel(radio_frame, text="Duplicates:").pack(side="left", padx=(0, 10))
         ctk.CTkRadioButton(radio_frame, text="Skip", variable=self.dup_var, value="skip").pack(side="left", padx=(0, 15))
